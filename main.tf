@@ -67,10 +67,10 @@ resource "scaleway_instance_server" "public" {
 
   # This instance should use the public access as default instead of the PGW.
   # We override the route metric to put it lower than the default via ens2.
-  # We add both ens4 and ens5 to handle the naming of the nic changing by
-  # ubuntu version and offer.
-  # The 99 in the name of the file is important, it will override the "previous"
-  # files in the netplan folder (created by cloud-init and scaleway-ecosystem).
+  # To make sure the private network interface name does not change,
+  # we create the interface with a custom udev rule and reference it using
+  # a netplan config. This config need to be applied manually since it bypass
+  # scaleway-ecosystem.
   user_data = {
     cloud-init = <<-EOT
     #cloud-config
@@ -79,19 +79,23 @@ resource "scaleway_instance_server" "public" {
     - postgresql-client
     - nginx
     write_files:
+    - path: /lib/udev/rules.d/72-scw-vpc-iface.rules
+      content: ""
+    - path: /lib/udev/rules.d/72-persistent-vpc-iface.rules
+      content: |
+        SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", ATTR{address}=="02:00:00:*", NAME="priv0"
     - path: /etc/netplan/99-overrides.yaml
       permissions: '0644'
       content: |
         network:
           version: 2
           ethernets:
-            ens4:
-              dhcp4-overrides:
-                route-metric: 150
-            ens5:
+            priv0:
+              dhcp4: true
               dhcp4-overrides:
                 route-metric: 150
     runcmd:
+    - netplan generate && netplan apply
     - echo "Hello, i'm $(hostname)!" > /var/www/html/index.nginx-debian.html
     - systemctl enable --now nginx
     EOT
