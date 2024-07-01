@@ -66,11 +66,8 @@ resource "scaleway_instance_server" "public" {
   }
 
   # This instance should use the public access as default instead of the PGW.
-  # We override the route metric to put it lower than the default via ens2.
-  # To make sure the private network interface name does not change,
-  # we create the interface with a custom udev rule and reference it using
-  # a netplan config. This config need to be applied manually since it bypass
-  # scaleway-ecosystem.
+  # We override the route metric of the public interface to put it higher than 
+  # any potential private nic to ensure default trafic enter and exit via ens2.
   user_data = {
     cloud-init = <<-EOT
     #cloud-config
@@ -79,30 +76,22 @@ resource "scaleway_instance_server" "public" {
     - postgresql-client
     - nginx
     write_files:
-    - path: /lib/udev/rules.d/72-scw-vpc-iface.rules
-      content: ""
-    - path: /lib/udev/rules.d/72-persistent-vpc-iface.rules
-      content: |
-        SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", ATTR{address}=="02:00:00:*", NAME="priv0"
     - path: /etc/netplan/99-overrides.yaml
       permissions: '0644'
       content: |
         network:
           version: 2
           ethernets:
-            priv0:
-              dhcp4: true
+            ens2:
               dhcp4-overrides:
-                route-metric: 150
+                route-metric: 10
     runcmd:
-    - netplan generate && netplan apply
     - echo "Hello, i'm $(hostname)!" > /var/www/html/index.nginx-debian.html
     - systemctl enable --now nginx
     EOT
   }
 
   security_group_id = scaleway_instance_security_group.http.id
-
   depends_on = [scaleway_vpc_gateway_network.internal]
 }
 
